@@ -1,2 +1,103 @@
-# Dynamic-Risk-Analysis
-This project builds an agent-based system that tackles the Static Credit Memo Problem in finance. It replaces the slow, retrospective risk process with a fast, real-time monitoring framework driven by collaborating AI agents built using **Google Agent Development Kit (ADK)**.
+# Dynamic Risk Analysis - An Agentic AI System
+
+This project is an advanced, agent-based system designed to solve the "Static Credit Memo Problem" in finance. It transforms the traditional, slow, and backward-looking process of risk assessment into a dynamic, real-time, and continuous surveillance system powered by a team of collaborating AI agents, all meticulously constructed using the **Google Agent Development Kit (ADK)**.
+
+## 1. The Problem
+
+Traditional "Counterparty Credit Memos" are fundamentally broken:
+- **Manual & Slow:** Analysts spend weeks gathering data.
+- **Backward-Looking:** The analysis is outdated by the time it's delivered in a static PDF.
+- **Inconsistent:** Different analysts produce different results from the same data.
+- **Doesn't Scale:** The manual process creates bottlenecks during market volatility.
+
+This project reimagines the process, creating a **"living" risk profile** that is continuously updated and available on demand, orchestrated by ADK's powerful framework.
+
+## 2. System Architecture
+
+The application consists of a FastAPI backend that orchestrates the agentic workflow using **Google ADK's `Runner` and `SessionService`** and a React-based frontend that serves as the "Analyst Cockpit" for interacting with the analysis.
+
+The core of the backend is a multi-agent system, where specialized ADK agents collaborate to produce a comprehensive risk assessment. The entire workflow is precisely defined using ADK's `SequentialAgent` and `ParallelAgent` patterns, establishing a clear and deterministic execution flow.
+
+![Architecture Diagram](ArchitectureDiagram_Dark.svg)
+*(A conceptual diagram will be referenced here)*
+
+## 3. The Agentic Workflow: A Step-by-Step Explanation
+
+The entire analysis is executed as a sophisticated **`adk.agents.SequentialAgent`**, defining a precise pipeline of specialized ADK sub-agents. All data, from initial inputs to final reports, is managed within an **ADK `Session` object (`session.state`)**, serving as a persistent scratchpad accessible across all agents.
+
+#### **Step 1: Orchestration Begins (ADK `Runner` & `Session`)**
+The process is initiated when the user provides a company name via the UI. An **ADK `Runner`** starts a new **ADK `Session`** for this analysis, initializing `session.state` with the user's request. This `Session` will meticulously track the entire conversation history and all intermediate data.
+
+#### **Step 2: Data Ingestion Agent (ADK `FunctionAgent`)**
+This agent is implemented as an **`adk.agents.FunctionAgent`** (`_data_ingestion_fn`). Its responsibility is to gather all necessary raw data from diverse sources and store it directly into the `session.state`. It utilizes several specialized tools:
+- **`company_lookup` tool:** Leverages the **Google Gemini** model to resolve a raw company name into its official name and stock ticker.
+- **`generate_internal_data` tool:** Employs **Google Gemini** to generate plausible, fictional internal risk exposure data for the counterparty.
+- **`financial_statements` & `market_data` tools:** Access real-world financial statements and historical market data using the `yfinance` library.
+
+#### **Step 3: Parallel Analysis (ADK `ParallelAgent`)**
+Once the initial data is ingested, the workflow proceeds to an **`adk.agents.ParallelAgent`**. This agent concurrently executes two critical sub-agents—the Quantitative Agent and the Qualitative Agent—significantly accelerating the analysis phase.
+
+- **A) The Quantitative Agent ("The Quant" - ADK `FunctionAgent`)**
+  Implemented as an **`adk.agents.FunctionAgent`** (`_quant_agent_fn`), this agent specializes in numerical financial analysis.
+  - **Custom Model 1 (Feature Generation):** It calls the `generate_bankruptcy_model_features` tool, which utilizes **Google Gemini** to produce a comprehensive 95-point feature vector.
+  - **Custom Model 2 (PD Score Prediction):** These features are then processed by a custom-trained **H2O AutoML model** (`StackedEnsemble_AllModels_1_AutoML_1_20251115_193117`) to predict a precise **Probability of Default (PD) score**.
+  - It also performs standard financial ratio calculations. All `quant_results` are stored in `session.state`.
+
+- **B) The Qualitative Agent ("The Researcher" - ADK `FunctionAgent`)**
+  This **`adk.agents.FunctionAgent`** (`_qual_agent_fn`) performs a sophisticated two-step analysis to understand the narrative and sentiment surrounding the company.
+  - **Step 1: Summarization with Gemini:** The agent first uses the **Google Gemini model**, with its native Google Search capabilities, to find the latest news and generate a concise summary of any potential business or financial risks.
+  - **Step 2: Sentiment Analysis with FinBERT:** The summary generated by Gemini is then passed to **FinBERT**, a specialized financial language model. FinBERT performs a detailed sentiment analysis on the text, providing a precise sentiment score (-1.0 to 1.0). This "right tool for the right job" approach ensures that we leverage a powerful LLM for broad understanding and a specialized model for nuanced scoring. The final `qual_results`, including the summary and FinBERT score, are then stored in `session.state`.
+
+#### **Step 4: Conflict Detection Agent (ADK `FunctionAgent`)**
+This **`adk.agents.FunctionAgent`** (`_conflict_detection_fn`) acts as an automated reviewer. It retrieves `quant_results` and `qual_results` from `session.state`, compares them, and identifies any significant contradictions (e.g., low quantitative risk but high negative sentiment). Detected `conflicts` are then stored in `session.state`.
+
+#### **Step 5: Risk Synthesis Agent (ADK `FunctionAgent`)**
+As an **`adk.agents.FunctionAgent`** (`_risk_synthesis_fn`), this agent functions as the "team lead." It synthesizes all key data points from `session.state`—including the PD score and news sentiment—into a final, unified risk assessment. It computes a `final_risk_score`, `risk_category` (LOW, MEDIUM, HIGH), and a `confidence_level`, storing these `synthesis` results in `session.state`.
+
+#### **Step 6 & 7: Memo Generation and Storage (ADK `FunctionAgent`s)**
+- The **Memo Generation Agent** (`_memo_generation_fn`), another **`adk.agents.FunctionAgent`**, compiles all the data accumulated in `session.state` into a structured JSON object, the "Dynamic Credit Memo," and saves it to `session.state['final_memo']`.
+- Finally, the **Save to DB Agent** (`_save_to_db_fn`), also an **`adk.agents.FunctionAgent`**, persists the `session.state['final_memo']` to the SQLite database with a `pending` status, making it accessible for human review via the UI.
+
+## 4. The Importance of Google ADK
+
+This project exemplifies the power and flexibility of the **Google Agent Development Kit (ADK)** by implementing a sophisticated multi-agent system entirely through its core primitives.
+
+1.  **Code-First & Modularity:** ADK's code-first philosophy is fully embraced. Each step of the complex risk analysis workflow is encapsulated within a dedicated Python function, wrapped as an **`adk.agents.FunctionAgent`**, ensuring high modularity, testability, and maintainability.
+2.  **Deterministic Workflow Orchestration:** The entire analysis pipeline is precisely defined using ADK's powerful workflow agents:
+    *   An overarching **`adk.agents.SequentialAgent`** guarantees that tasks are executed in a predefined, logical order.
+    *   An **`adk.agents.ParallelAgent`** intelligently dispatches independent tasks (quantitative and qualitative analysis) for concurrent execution, optimizing performance.
+3.  **Robust State Management with `SessionService`:** ADK's `InMemorySessionService` transparently manages the entire `session.state` throughout the workflow. This central `session.state` acts as the shared workspace, allowing agents to seamlessly read and write intermediate results and ensuring context is preserved across all processing steps.
+4.  **Leveraging Google's AI Foundation:** The project deeply integrates with **Google Gemini** (via `google-generativeai`), the very foundation of ADK. This enables agents to perform complex reasoning, dynamic data generation, and real-time information retrieval (like Google Search for news sentiment) directly through Google's state-of-the-art LLMs.
+5.  **Scalability and Production Readiness:** By building upon ADK's structured approach, the system is inherently scalable and adaptable. It's perfectly poised for future enhancements, such as integration with `adk.memory` for long-term knowledge, deployment to **Vertex AI Agent Engine**, or extension with **Agent2Agent (A2A) communication** for inter-service collaboration.
+
+In summary, this project is a robust demonstration of building production-ready agentic systems by rigorously applying the patterns and components advocated by the Google ADK framework.
+
+## 5. Technology Stack
+
+- **Backend:** Python, FastAPI
+- **Agent Framework:** **Google ADK (SequentialAgent, ParallelAgent, FunctionAgent)**
+- **LLM:** Google Gemini Flash (via `google-generativeai`)
+- **Predictive ML Models:** H2O AutoML (Stacked Ensemble), FinBERT (Sentiment Analysis)
+- **Database:** SQLite
+- **Frontend:** React, TypeScript, Vite, TailwindCSS
+- **Data Sources:** `yfinance` API, Google Search
+
+## 6. How to Run
+
+1.  **Install Dependencies:**
+    ```bash
+    # From the root directory
+    pip install -r Project/backend/requirements.txt
+    npm install --prefix Project/frontend
+    ```
+2.  **Set Up Environment:**
+    - Create a `.env` file in the `Project/` directory.
+    - Add your `GOOGLE_API_KEY` to the `.env` file: `GOOGLE_API_KEY="your_key_here"`
+3.  **Run the Application:**
+    ```bash
+    # From the root directory
+    python app.py
+    ```
+4.  **Access the UI:**
+    - The backend will be running on `http://localhost:8000`.
+    - The frontend will be available at `http://localhost:5173` (or another port specified by Vite).
